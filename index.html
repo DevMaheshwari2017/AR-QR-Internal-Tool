@@ -329,7 +329,7 @@
     // Look up the experience row by its short ID
     const { data, error } = await sb
       .from('experiences')
-      .select('id, slug, title, mind_url, video_url, target_aspect, is_active')
+      .select('id, slug, title, mind_url, video_url, target_aspect, offset_x, offset_y, is_active')
       .eq('slug', id)
       .single();
 
@@ -483,11 +483,13 @@
           smooth-anchor="alpha: ${LERP_ALPHA};"
         >
           <!-- Size is applied dynamically once we know the target aspect
-               ratio (stored on the experience row) and video aspect. -->
+               ratio (stored on the experience row) and video aspect.
+               Position applies optional manual X/Y offsets set in admin
+               (Y sign flipped: UI "down" = world "Y-"). -->
           <a-video
             id="ar-video-plane"
             src="#ar-video"
-            position="0 0 0.001"
+            position="${(experience.offset_x || 0)} ${-(experience.offset_y || 0)} 0.001"
             width="1"
             height="1">
           </a-video>

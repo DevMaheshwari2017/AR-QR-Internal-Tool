@@ -314,6 +314,81 @@
     }
     .btn-primary:disabled { opacity: 0.3; cursor: not-allowed; }
 
+    /* Alignment preview */
+    #align-canvas-wrap {
+      background: #0a0d11;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    #align-stage {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      margin: 0 auto;
+      /* aspect ratio is set dynamically via JS once ref image loads */
+    }
+    #align-ref-img {
+      display: block;
+      width: 100%;
+      height: auto;
+      user-select: none;
+      pointer-events: none;
+    }
+    #align-video {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 100%;
+      height: 100%;
+      /* transform controls both centering AND the user offset */
+      transform: translate(-50%, -50%);
+      object-fit: cover;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .slider-label {
+      width: 20px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .slider-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+      height: 4px;
+    }
+    .slider-value {
+      width: 44px;
+      text-align: right;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .reset-btn {
+      width: 100%;
+      margin-top: 6px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .reset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
     /* QR modal */
     #qr-canvas-wrap {
       background: #fff; padding: 20px; border-radius: 16px;
@@ -492,6 +567,31 @@
       </div>
     </div>
 
+    <!-- Alignment preview — shows once ref image + video are both loaded -->
+    <div class="field" id="align-section" style="display:none;">
+      <label>Alignment Preview</label>
+      <p style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin:-2px 0 10px;line-height:1.5;">
+        // video preview overlaid on reference image — drag sliders to nudge into position
+      </p>
+      <div id="align-canvas-wrap">
+        <div id="align-stage">
+          <img id="align-ref-img" alt="reference" />
+          <video id="align-video" muted loop playsinline></video>
+        </div>
+      </div>
+      <div class="slider-row">
+        <label class="slider-label">X</label>
+        <input type="range" id="offset-x-slider" min="-50" max="50" step="0.5" value="0" />
+        <span class="slider-value" id="offset-x-value">0</span>
+      </div>
+      <div class="slider-row">
+        <label class="slider-label">Y</label>
+        <input type="range" id="offset-y-slider" min="-50" max="50" step="0.5" value="0" />
+        <span class="slider-value" id="offset-y-value">0</span>
+      </div>
+      <button type="button" class="reset-btn" onclick="resetOffsets()">↺ Reset to center</button>
+    </div>
+
     <div class="progress-wrap" id="upload-progress">
       <div class="progress-bar-bg"><div class="progress-bar-fill" id="upload-bar"></div></div>
       <div class="progress-label" id="upload-label">Uploading...</div>
@@ -535,7 +635,12 @@
 
   // ─── State ────────────────────────────────────────────────
   let sb = null;
-  const staged = { mind: null, video: null, refimg: null, targetAspect: null };
+  const staged = {
+    mind: null, video: null, refimg: null,
+    targetAspect: null,
+    offsetX: 0, offsetY: 0,           // percent of target width/height (-50 to 50)
+    refimgUrl: null, videoUrl: null   // blob URLs for preview (revoked on modal close)
+  };
   let currentQrSlug = null;
 
   // ─── Init Supabase ────────────────────────────────────────
@@ -631,10 +736,19 @@
 
   // ─── Modal helpers ────────────────────────────────────────
   function openCreateModal() {
+    // Revoke any leftover blob URLs from a previous session
+    if (staged.refimgUrl) URL.revokeObjectURL(staged.refimgUrl);
+    if (staged.videoUrl)  URL.revokeObjectURL(staged.videoUrl);
+
     staged.mind = null;
     staged.video = null;
     staged.refimg = null;
     staged.targetAspect = null;
+    staged.offsetX = 0;
+    staged.offsetY = 0;
+    staged.refimgUrl = null;
+    staged.videoUrl = null;
+
     document.getElementById('exp-title').value = '';
     document.getElementById('mind-chip').classList.remove('show');
     document.getElementById('video-chip').classList.remove('show');
@@ -643,6 +757,12 @@
     document.getElementById('video-input').value = '';
     document.getElementById('refimg-input').value = '';
     document.getElementById('upload-progress').classList.remove('show');
+    document.getElementById('align-section').style.display = 'none';
+    document.getElementById('offset-x-slider').value = 0;
+    document.getElementById('offset-y-slider').value = 0;
+    document.getElementById('offset-x-value').textContent = '0';
+    document.getElementById('offset-y-value').textContent = '0';
+
     updateCreateBtn();
     document.getElementById('create-modal').classList.add('show');
   }
@@ -677,38 +797,121 @@
     document.getElementById(type + '-fsize').textContent = formatSize(file.size);
     document.getElementById(type + '-chip').classList.add('show');
 
-    // For reference image: decode it to get aspect ratio
+    // For reference image: decode it to get aspect ratio + keep URL for preview
     if (type === 'refimg') {
+      // Clean up any previous ref image URL
+      if (staged.refimgUrl) URL.revokeObjectURL(staged.refimgUrl);
+      staged.refimgUrl = URL.createObjectURL(file);
+
       const img = new Image();
-      const url = URL.createObjectURL(file);
       img.onload = () => {
         staged.targetAspect = img.naturalWidth / img.naturalHeight;
-        URL.revokeObjectURL(url);
-        // Show the detected aspect in the size line (nice feedback)
         document.getElementById('refimg-fsize').textContent =
           `${formatSize(file.size)} · ${img.naturalWidth}×${img.naturalHeight} (aspect ${staged.targetAspect.toFixed(3)})`;
+        maybeShowAlignmentPreview();
         updateCreateBtn();
       };
       img.onerror = () => {
-        URL.revokeObjectURL(url);
         showToast('error', '⚠ Could not read image');
       };
-      img.src = url;
+      img.src = staged.refimgUrl;
+    }
+
+    // For video: keep URL for preview
+    if (type === 'video') {
+      if (staged.videoUrl) URL.revokeObjectURL(staged.videoUrl);
+      staged.videoUrl = URL.createObjectURL(file);
+      maybeShowAlignmentPreview();
     }
 
     updateCreateBtn();
   }
   function clearFile(type) {
     staged[type] = null;
-    if (type === 'refimg') staged.targetAspect = null;
+    if (type === 'refimg') {
+      staged.targetAspect = null;
+      if (staged.refimgUrl) { URL.revokeObjectURL(staged.refimgUrl); staged.refimgUrl = null; }
+    }
+    if (type === 'video') {
+      if (staged.videoUrl) { URL.revokeObjectURL(staged.videoUrl); staged.videoUrl = null; }
+    }
     document.getElementById(type + '-chip').classList.remove('show');
     document.getElementById(type + '-input').value = '';
+
+    // Hide alignment preview if either required source is gone
+    if (type === 'refimg' || type === 'video') {
+      document.getElementById('align-section').style.display = 'none';
+    }
     updateCreateBtn();
   }
   function formatSize(b) {
     if (b < 1024) return b + ' B';
     if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
     return (b/(1024*1024)).toFixed(1) + ' MB';
+  }
+
+  // ─── Alignment preview ────────────────────────────────────
+  // Shown when both a reference image AND a video are loaded.
+  // The user drags X/Y sliders to nudge the video on top of the image.
+  // Offsets are stored as PERCENT of the target's width/height
+  // (-50 to +50). In the viewer we convert percent → world units
+  // using the same target's aspect ratio.
+
+  function maybeShowAlignmentPreview() {
+    if (!staged.refimgUrl || !staged.videoUrl) return;
+
+    const section = document.getElementById('align-section');
+    const refImg  = document.getElementById('align-ref-img');
+    const video   = document.getElementById('align-video');
+
+    refImg.src = staged.refimgUrl;
+    video.src  = staged.videoUrl;
+    video.play().catch(() => { /* autoplay may fail; looks fine as still frame */ });
+
+    section.style.display = 'block';
+    applyOffsetPreview();
+  }
+
+  function applyOffsetPreview() {
+    const video = document.getElementById('align-video');
+    // translate(-50%, -50%) centers the video; the percentages we add shift it
+    const tx = -50 + staged.offsetX; // -50% (center) + user offset
+    const ty = -50 + staged.offsetY;
+    video.style.transform = `translate(${tx}%, ${ty}%)`;
+  }
+
+  function resetOffsets() {
+    staged.offsetX = 0;
+    staged.offsetY = 0;
+    document.getElementById('offset-x-slider').value = 0;
+    document.getElementById('offset-y-slider').value = 0;
+    document.getElementById('offset-x-value').textContent = '0';
+    document.getElementById('offset-y-value').textContent = '0';
+    applyOffsetPreview();
+  }
+
+  // Wire up the sliders. Use DOMContentLoaded if it hasn't fired yet,
+  // otherwise run immediately (the sliders exist since this script is at
+  // the end of body).
+  function wireSliders() {
+    const xs = document.getElementById('offset-x-slider');
+    const ys = document.getElementById('offset-y-slider');
+    if (!xs || !ys) return;
+    xs.addEventListener('input', e => {
+      staged.offsetX = parseFloat(e.target.value);
+      document.getElementById('offset-x-value').textContent = staged.offsetX.toFixed(1);
+      applyOffsetPreview();
+    });
+    ys.addEventListener('input', e => {
+      staged.offsetY = parseFloat(e.target.value);
+      document.getElementById('offset-y-value').textContent = staged.offsetY.toFixed(1);
+      applyOffsetPreview();
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireSliders);
+  } else {
+    wireSliders();
   }
   function updateCreateBtn() {
     document.getElementById('create-btn').disabled =
@@ -769,6 +972,14 @@
       // 4. Insert DB row
       label.textContent = 'Saving experience...';
       bar.style.width = '90%';
+
+      // Convert UI offsets (percent of target W/H) → world units.
+      // Plane in viewer is 1 world unit wide, 1/aspect tall.
+      // So 50% of width = 0.5 world units on X;
+      //    50% of height = 0.5 * (1/aspect) world units on Y.
+      const offsetXWorld = (staged.offsetX / 100) * 1;
+      const offsetYWorld = (staged.offsetY / 100) * (1 / staged.targetAspect);
+
       const { error: insErr } = await sb
         .from('experiences')
         .insert({
@@ -777,6 +988,8 @@
           mind_url: mindUrl,
           video_url: videoUrl,
           target_aspect: staged.targetAspect,
+          offset_x: offsetXWorld,
+          offset_y: offsetYWorld,
           is_active: true
         });
       if (insErr) throw new Error('DB insert: ' + insErr.message);
