@@ -271,22 +271,33 @@
 <script>
   // ── Anti-jitter config ────────────────────────────────
   //
-  // Primary smoothing is done by MindAR's OneEuroFilter (configured in the
-  // mindar-image attribute below). We use filterMinCF=0.0001 / filterBeta=10
-  // instead of the jittery defaults (0.001 / 1000) — per the official docs
-  // and production users, low filterBeta is what actually kills jitter.
+  // Three layers of smoothing work together:
   //
-  // Our custom smooth-anchor component adds gentle residual smoothing on top.
-  // At alpha=0.6, it follows MindAR's output closely but irons out any last
-  // per-frame noise. Going too low (e.g. 0.25) would double-smooth on top of
-  // MindAR's filter and feel laggy.
+  // 1) MindAR's OneEuroFilter (in the mindar-image attribute below).
+  //    filterMinCF=0.0001 / filterBeta=10 — much smoother than the jittery
+  //    defaults (0.001 / 1000). This is the primary smoother.
   //
-  // debounce-visibility holds the video through brief tracking drops so it
-  // doesn't flicker when the user's hand shakes slightly.
+  // 2) Our smooth-anchor component — splits position vs rotation:
+  //      POS_ALPHA (0.4) — position smoothing. Higher = more responsive to
+  //          real movement. Keep this reasonably high so the video follows
+  //          the marker naturally when you move the phone.
+  //      ROT_ALPHA (0.15) — rotation smoothing. LOW because rotation noise
+  //          is what causes corner bounce (tiny angles = big corner movement
+  //          on a flat plane). Heavy smoothing here barely hurts perceived
+  //          responsiveness.
+  //      ROT_DEADZONE_RAD (~0.5°) — angle below which we IGNORE rotation
+  //          updates entirely. Real user rotation is always bigger than this;
+  //          tracking noise is usually smaller. Result: rock-solid corners
+  //          when holding steady.
+  //
+  // 3) debounce-visibility — holds the video through brief tracking drops
+  //    so it doesn't flicker when hand shakes slightly.
 
-  const LERP_ALPHA     = 0.6;   // 0.1 = very smooth+laggy, 1.0 = no smoothing
-  const LOST_DEBOUNCE  = 45;    // frames target must be "gone" before hiding
-  const FOUND_DEBOUNCE = 2;     // frames target must be "seen" before showing
+  const POS_ALPHA        = 0.4;
+  const ROT_ALPHA        = 0.15;
+  const ROT_DEADZONE_RAD = 0.0087;  // ≈0.5°
+  const LOST_DEBOUNCE    = 45;
+  const FOUND_DEBOUNCE   = 2;
 
   // ── State ─────────────────────────────────────────────
   let sb    = null;
@@ -372,11 +383,33 @@
     buildScene();
   }
 
-  // ── Smooth-anchor + debounce-visibility (unchanged) ──
+  // ── Smooth-anchor + debounce-visibility ──
   function registerComponents() {
     if (!AFRAME.components['smooth-anchor']) {
       AFRAME.registerComponent('smooth-anchor', {
-        schema: { alpha: { type: 'number', default: 0.25 } },
+        //
+        // Why position and rotation are smoothed separately:
+        //
+        // On a flat AR plane pressed against the real target, tiny rotation
+        // noise (fractions of a degree) makes the CORNERS of the plane move
+        // opposite directions — that's what causes the "bounce up/down" and
+        // corner jitter even when MindAR's position is stable. Meanwhile
+        // position noise makes the whole plane shift uniformly, which MindAR's
+        // internal filter already handles well.
+        //
+        // So: position needs light smoothing (responsive to real movement),
+        // rotation needs HEAVY smoothing (rotation noise is most visible).
+        //
+        // The deadzone further kills residual rotation noise: if frame-to-
+        // frame rotation change is below `rotDeadzoneRad` radians (~0.5°),
+        // we don't rotate at all. Real user movements are always bigger
+        // than this, so we lose nothing perceptible.
+        //
+        schema: {
+          posAlpha:       { type: 'number', default: 0.4 },   // position smoothing (higher = more responsive)
+          rotAlpha:       { type: 'number', default: 0.15 },  // rotation smoothing (lower = smoother, 0.15 is strong)
+          rotDeadzoneRad: { type: 'number', default: 0.0087 } // ≈0.5° — angle below which we ignore rotation updates
+        },
         init() {
           this.smoothPos  = new THREE.Vector3();
           this.smoothQuat = new THREE.Quaternion();
@@ -389,14 +422,28 @@
           if (!obj.visible) return;
           this.rawPos.copy(obj.position);
           this.rawQuat.copy(obj.quaternion);
+
           if (!this.initialized) {
+            // First frame: snap to MindAR's output
             this.smoothPos.copy(this.rawPos);
             this.smoothQuat.copy(this.rawQuat);
             this.initialized = true;
             return;
           }
-          this.smoothPos.lerp(this.rawPos, this.data.alpha);
-          this.smoothQuat.slerp(this.rawQuat, this.data.alpha);
+
+          // ── Position: lerp with posAlpha ──
+          this.smoothPos.lerp(this.rawPos, this.data.posAlpha);
+
+          // ── Rotation: check deadzone, then slerp ──
+          // angleTo() returns the angle in radians between two quaternions.
+          // If it's below our deadzone, the user isn't actually rotating —
+          // it's just tracking noise, so we skip the rotation update entirely.
+          const angleDelta = this.smoothQuat.angleTo(this.rawQuat);
+          if (angleDelta > this.data.rotDeadzoneRad) {
+            this.smoothQuat.slerp(this.rawQuat, this.data.rotAlpha);
+          }
+          // else: keep smoothQuat as-is. No corner bounce.
+
           obj.position.copy(this.smoothPos);
           obj.quaternion.copy(this.smoothQuat);
         }
@@ -456,7 +503,7 @@
     container.innerHTML = `
       <a-scene
         id="ar-scene"
-        mindar-image="imageTargetSrc: ${experience.mind_url}; autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.0001; filterBeta: 10; missTolerance: 15; warmupTolerance: 5;"
+        mindar-image="imageTargetSrc: ${experience.mind_url}; autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.00001; filterBeta: 3; missTolerance: 15; warmupTolerance: 5;"
         color-space="sRGB"
         renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true;"
         embedded
@@ -480,7 +527,7 @@
           id="image-target"
           mindar-image-target="targetIndex: 0"
           debounce-visibility="lostFrames: ${LOST_DEBOUNCE}; foundFrames: ${FOUND_DEBOUNCE};"
-          smooth-anchor="alpha: ${LERP_ALPHA};"
+          smooth-anchor="posAlpha: ${POS_ALPHA}; rotAlpha: ${ROT_ALPHA}; rotDeadzoneRad: ${ROT_DEADZONE_RAD};"
         >
           <!-- Size is applied dynamically once we know the target aspect
                ratio (stored on the experience row) and video aspect. -->
