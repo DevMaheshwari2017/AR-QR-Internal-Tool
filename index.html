@@ -493,8 +493,38 @@
     });
 
     sceneEl.addEventListener('arError', () => {
-      document.getElementById('loading-screen').innerHTML =
-        '<p style="color:#ff4d6d;text-align:center;padding:40px;font-family:DM Mono,monospace;font-size:14px;">⚠️ Camera access denied.<br><br>Allow camera permissions and refresh.</p>';
+      document.getElementById('loading-screen').innerHTML = `
+        <div style="max-width:320px;padding:32px 24px;text-align:center;font-family:'DM Mono',monospace;">
+          <div style="font-size:44px;margin-bottom:16px;">📷</div>
+          <h2 style="color:#e8edf2;font-family:'Syne',sans-serif;font-size:20px;font-weight:700;margin-bottom:16px;">
+            Camera not available
+          </h2>
+          <p style="color:#9ab;font-size:12px;line-height:1.7;margin-bottom:20px;">
+            This can happen if:
+          </p>
+          <div style="text-align:left;color:#9ab;font-size:12px;line-height:1.7;margin-bottom:24px;">
+            <p style="margin-bottom:10px;">
+              <span style="color:#00e5ff;">1.</span>
+              Another app is using the camera (Instagram, WhatsApp, Snapchat). Close them from Recent Apps.
+            </p>
+            <p style="margin-bottom:10px;">
+              <span style="color:#00e5ff;">2.</span>
+              Camera permission was denied. Tap the lock icon in the address bar and allow camera.
+            </p>
+            <p>
+              <span style="color:#00e5ff;">3.</span>
+              You're in a browser that blocks camera (in-app browsers like Instagram/LinkedIn). Open this link in Chrome or Safari.
+            </p>
+          </div>
+          <button onclick="location.reload()" style="
+            background:linear-gradient(135deg,#00e5ff,#00b8d4);
+            color:#000;border:none;padding:12px 28px;border-radius:10px;
+            font-family:'Syne',sans-serif;font-size:14px;font-weight:700;
+            cursor:pointer;letter-spacing:0.04em;">
+            ↻ Try Again
+          </button>
+        </div>
+      `;
     });
 
     targetEl.addEventListener('stableFound', () => {
