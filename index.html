@@ -269,10 +269,24 @@
 <script src="/config.js"></script>
 
 <script>
-  // ── Anti-jitter config (same as v1) ───────────────────
-  const LERP_ALPHA     = 0.25;
-  const LOST_DEBOUNCE  = 45;
-  const FOUND_DEBOUNCE = 2;
+  // ── Anti-jitter config ────────────────────────────────
+  //
+  // Primary smoothing is done by MindAR's OneEuroFilter (configured in the
+  // mindar-image attribute below). We use filterMinCF=0.0001 / filterBeta=10
+  // instead of the jittery defaults (0.001 / 1000) — per the official docs
+  // and production users, low filterBeta is what actually kills jitter.
+  //
+  // Our custom smooth-anchor component adds gentle residual smoothing on top.
+  // At alpha=0.6, it follows MindAR's output closely but irons out any last
+  // per-frame noise. Going too low (e.g. 0.25) would double-smooth on top of
+  // MindAR's filter and feel laggy.
+  //
+  // debounce-visibility holds the video through brief tracking drops so it
+  // doesn't flicker when the user's hand shakes slightly.
+
+  const LERP_ALPHA     = 0.6;   // 0.1 = very smooth+laggy, 1.0 = no smoothing
+  const LOST_DEBOUNCE  = 45;    // frames target must be "gone" before hiding
+  const FOUND_DEBOUNCE = 2;     // frames target must be "seen" before showing
 
   // ── State ─────────────────────────────────────────────
   let sb    = null;
@@ -442,7 +456,7 @@
     container.innerHTML = `
       <a-scene
         id="ar-scene"
-        mindar-image="imageTargetSrc: ${experience.mind_url}; autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.001; filterBeta: 1000;"
+        mindar-image="imageTargetSrc: ${experience.mind_url}; autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.0001; filterBeta: 10; missTolerance: 15; warmupTolerance: 5;"
         color-space="sRGB"
         renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true;"
         embedded
