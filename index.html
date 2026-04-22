@@ -315,7 +315,7 @@
     // Look up the experience row by its short ID
     const { data, error } = await sb
       .from('experiences')
-      .select('id, slug, title, mind_url, video_url, is_active')
+      .select('id, slug, title, mind_url, video_url, target_aspect, is_active')
       .eq('slug', id)
       .single();
 
@@ -468,11 +468,14 @@
           debounce-visibility="lostFrames: ${LOST_DEBOUNCE}; foundFrames: ${FOUND_DEBOUNCE};"
           smooth-anchor="alpha: ${LERP_ALPHA};"
         >
+          <!-- Size is applied dynamically once we know the target aspect
+               ratio (stored on the experience row) and video aspect. -->
           <a-video
+            id="ar-video-plane"
             src="#ar-video"
             position="0 0 0.001"
             width="1"
-            height="0.5625">
+            height="1">
           </a-video>
         </a-entity>
       </a-scene>
@@ -480,7 +483,80 @@
 
     const sceneEl  = document.getElementById('ar-scene');
     const targetEl = document.getElementById('image-target');
+    const planeEl  = document.getElementById('ar-video-plane');
     videoEl = document.getElementById('ar-video');
+
+    // ── Fit strategy ──────────────────────────────────────────────
+    //
+    // The experience row in Supabase has a `target_aspect` field
+    // (target image width/height). We use it to:
+    //   1. Size the video plane to match the printed target exactly
+    //      (width=1, height=1/target_aspect).
+    //   2. Apply a UV texture transform so the video fills the plane
+    //      without distortion, cropping the overflow (like CSS
+    //      object-fit: cover).
+    //
+    // Fallback: if target_aspect is missing (older rows from before
+    // this field was added), size the plane to the video's own aspect.
+    // This won't cover the target, but won't distort the video either.
+
+    const targetAspect = (experience.target_aspect && experience.target_aspect > 0)
+      ? experience.target_aspect
+      : null;
+
+    let videoReady = false;
+
+    function applyFit() {
+      if (!videoReady) return;
+      const videoAspect = videoEl.videoWidth / videoEl.videoHeight;
+
+      let planeW, planeH;
+      if (targetAspect) {
+        // Plane matches target image exactly
+        planeW = 1;
+        planeH = 1 / targetAspect;
+      } else {
+        // Fallback: plane matches video aspect (no cropping, may not cover target)
+        planeW = 1;
+        planeH = 1 / videoAspect;
+      }
+      planeEl.setAttribute('width',  planeW);
+      planeEl.setAttribute('height', planeH);
+
+      if (!targetAspect) return; // no cover logic needed in fallback mode
+
+      // Cover-fill logic via texture UV transform
+      const mesh = planeEl.getObject3D('mesh');
+      if (!mesh || !mesh.material || !mesh.material.map) {
+        requestAnimationFrame(applyFit);
+        return;
+      }
+      const tex = mesh.material.map;
+      tex.matrixAutoUpdate = false;
+      let sx = 1, sy = 1, ox = 0, oy = 0;
+      if (videoAspect > targetAspect) {
+        // Video wider than target → fit height, crop sides
+        sx = targetAspect / videoAspect;
+        ox = (1 - sx) / 2;
+      } else {
+        // Video taller than target → fit width, crop top/bottom
+        sy = videoAspect / targetAspect;
+        oy = (1 - sy) / 2;
+      }
+      tex.matrix.setUvTransform(ox, oy, sx, sy, 0, 0, 0);
+      tex.needsUpdate = true;
+    }
+
+    videoEl.addEventListener('loadedmetadata', () => {
+      if (videoEl.videoWidth && videoEl.videoHeight) {
+        videoReady = true;
+        applyFit();
+      }
+    });
+    if (videoEl.readyState >= 1 && videoEl.videoWidth) {
+      videoReady = true;
+      applyFit();
+    }
 
     sceneEl.addEventListener('loaded', () => {
       arSystem = sceneEl.systems['mindar-image-system'];

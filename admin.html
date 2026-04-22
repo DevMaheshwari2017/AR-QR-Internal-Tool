@@ -450,6 +450,29 @@
     </div>
 
     <div class="field">
+      <label>Reference Image (same as what you compiled to .mind)</label>
+      <p style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin:-2px 0 8px;line-height:1.5;">
+        // used to measure exact aspect ratio so video covers the target perfectly. Not stored.
+      </p>
+      <div class="drop-zone" id="refimg-drop"
+           ondragover="handleDrag(event,'refimg-drop')"
+           ondragleave="removeDrag('refimg-drop')"
+           ondrop="handleDrop(event,'refimg')">
+        <input type="file" id="refimg-input" accept="image/*" onchange="handleFile(this,'refimg')"/>
+        <div class="drop-icon">🖼️</div>
+        <p><strong>Drop reference image</strong> or click to browse</p>
+      </div>
+      <div class="file-chip" id="refimg-chip">
+        <span>🖼️</span>
+        <div style="flex:1;min-width:0;">
+          <div class="name" id="refimg-fname"></div>
+          <div class="size" id="refimg-fsize"></div>
+        </div>
+        <button onclick="clearFile('refimg')">✕</button>
+      </div>
+    </div>
+
+    <div class="field">
       <label>AR Video (.mp4 recommended)</label>
       <div class="drop-zone" id="video-drop"
            ondragover="handleDrag(event,'video-drop')"
@@ -512,7 +535,7 @@
 
   // ─── State ────────────────────────────────────────────────
   let sb = null;
-  const staged = { mind: null, video: null }; // File objects waiting to upload
+  const staged = { mind: null, video: null, refimg: null, targetAspect: null };
   let currentQrSlug = null;
 
   // ─── Init Supabase ────────────────────────────────────────
@@ -610,11 +633,15 @@
   function openCreateModal() {
     staged.mind = null;
     staged.video = null;
+    staged.refimg = null;
+    staged.targetAspect = null;
     document.getElementById('exp-title').value = '';
     document.getElementById('mind-chip').classList.remove('show');
     document.getElementById('video-chip').classList.remove('show');
+    document.getElementById('refimg-chip').classList.remove('show');
     document.getElementById('mind-input').value = '';
     document.getElementById('video-input').value = '';
+    document.getElementById('refimg-input').value = '';
     document.getElementById('upload-progress').classList.remove('show');
     updateCreateBtn();
     document.getElementById('create-modal').classList.add('show');
@@ -640,14 +667,40 @@
       showToast('error', '⚠ Please upload a video file');
       return;
     }
+    if (type === 'refimg' && !file.type.startsWith('image/')) {
+      showToast('error', '⚠ Please upload an image file (PNG/JPG)');
+      return;
+    }
+
     staged[type] = file;
     document.getElementById(type + '-fname').textContent = file.name;
     document.getElementById(type + '-fsize').textContent = formatSize(file.size);
     document.getElementById(type + '-chip').classList.add('show');
+
+    // For reference image: decode it to get aspect ratio
+    if (type === 'refimg') {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        staged.targetAspect = img.naturalWidth / img.naturalHeight;
+        URL.revokeObjectURL(url);
+        // Show the detected aspect in the size line (nice feedback)
+        document.getElementById('refimg-fsize').textContent =
+          `${formatSize(file.size)} · ${img.naturalWidth}×${img.naturalHeight} (aspect ${staged.targetAspect.toFixed(3)})`;
+        updateCreateBtn();
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        showToast('error', '⚠ Could not read image');
+      };
+      img.src = url;
+    }
+
     updateCreateBtn();
   }
   function clearFile(type) {
     staged[type] = null;
+    if (type === 'refimg') staged.targetAspect = null;
     document.getElementById(type + '-chip').classList.remove('show');
     document.getElementById(type + '-input').value = '';
     updateCreateBtn();
@@ -658,7 +711,8 @@
     return (b/(1024*1024)).toFixed(1) + ' MB';
   }
   function updateCreateBtn() {
-    document.getElementById('create-btn').disabled = !(staged.mind && staged.video);
+    document.getElementById('create-btn').disabled =
+      !(staged.mind && staged.video && staged.refimg && staged.targetAspect);
   }
 
   // ─── Generate a short random slug ─────────────────────────
@@ -722,6 +776,7 @@
           title,
           mind_url: mindUrl,
           video_url: videoUrl,
+          target_aspect: staged.targetAspect,
           is_active: true
         });
       if (insErr) throw new Error('DB insert: ' + insErr.message);
