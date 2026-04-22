@@ -6,8 +6,12 @@
   <title>AR Experience</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 
+  <!-- AR engine -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <!-- Supabase client (talks to your database + storage) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
     :root {
@@ -17,7 +21,7 @@
     * { margin:0; padding:0; box-sizing:border-box; }
     html, body { width:100vw; height:100vh; overflow:hidden; background:#000; font-family:'Syne',sans-serif; }
 
-    /* ── Not-ready screen (shown when no assets uploaded) ── */
+    /* Not-ready / error screen */
     #not-ready {
       position: fixed; inset: 0; z-index: 9999;
       display: flex; flex-direction: column;
@@ -30,7 +34,7 @@
     #not-ready h2 { color: #e8edf2; font-size: 22px; font-weight: 700; }
     #not-ready p { color: #4a6070; font-size: 13px; font-family:'DM Mono',monospace; line-height: 1.6; max-width: 280px; }
 
-    /* ── Loading screen ── */
+    /* Loading screen */
     #loading-screen {
       position: fixed; inset: 0; z-index: 9998;
       display: flex; flex-direction: column;
@@ -50,7 +54,7 @@
     #loading-screen h2 { color: #e8edf2; font-size: 18px; font-weight: 600; }
     #loading-screen p  { color: #4a6070; font-size: 12px; font-family:'DM Mono',monospace; letter-spacing:0.1em; text-transform:uppercase; }
 
-    /* ── Splash ── */
+    /* Splash */
     #splash {
       position: fixed; inset: 0; z-index: 9997;
       display: flex; flex-direction: column;
@@ -66,7 +70,6 @@
         linear-gradient(90deg, rgba(0,229,255,0.015) 1px, transparent 1px);
       background-size:40px 40px;
     }
-
     .splash-ring {
       width: 80px; height: 80px; border-radius: 22px;
       background: linear-gradient(135deg, rgba(0,229,255,0.15), rgba(0,229,255,0.05));
@@ -79,6 +82,14 @@
     #splash h1 { color: #e8edf2; font-size: 28px; font-weight: 800; text-align:center; }
     #splash h1 span { color: var(--accent); }
     #splash > p { color: #4a6070; font-size: 13px; text-align:center; max-width: 260px; line-height:1.6; font-family:'DM Mono',monospace; }
+    #splash-title {
+      color: var(--accent2); font-size: 12px; font-family:'DM Mono',monospace;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 6px 14px; background: rgba(255,107,53,0.08);
+      border: 1px solid rgba(255,107,53,0.2); border-radius: 50px;
+      max-width: 280px; text-align: center;
+    }
+    #splash-title.gone { display: none; }
 
     .steps { width:100%; max-width: 300px; display:flex; flex-direction:column; gap:10px; }
     .step {
@@ -106,34 +117,7 @@
     }
     #start-btn:active { transform: scale(0.98); }
 
-    /* ── Admin button — fixed top-right, only on splash ── */
-    #admin-btn {
-      position: fixed;
-      top: 16px; right: 16px;
-      z-index: 9999;
-      display: flex; align-items: center; gap: 7px;
-      background: rgba(14,19,24,0.9);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(0,229,255,0.3);
-      color: var(--accent);
-      padding: 9px 16px;
-      border-radius: 50px;
-      font-family: 'DM Mono', monospace;
-      font-size: 12px; font-weight: 500; letter-spacing: 0.06em;
-      text-decoration: none;
-      box-shadow: 0 0 20px rgba(0,229,255,0.1);
-      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s, transform 0.1s;
-    }
-    #admin-btn:hover {
-      border-color: rgba(0,229,255,0.6);
-      box-shadow: 0 0 28px rgba(0,229,255,0.2);
-      background: rgba(0,229,255,0.08);
-    }
-    #admin-btn:active { transform: scale(0.96); }
-    #admin-btn.gone { display: none !important; }
-
-    /* ── Scanning UI ── */
+    /* Scanning UI */
     #scanning {
       position:fixed; inset:0; z-index:100; pointer-events:none;
       display:flex; flex-direction:column;
@@ -141,10 +125,7 @@
       opacity:1; transition:opacity 0.5s;
     }
     #scanning.gone { opacity:0; }
-
-    .scan-frame {
-      width:240px; height:180px; position:relative;
-    }
+    .scan-frame { width:240px; height:180px; position:relative; }
     .scan-frame::before, .scan-frame::after,
     .scan-frame .br, .scan-frame .bl {
       content:''; position:absolute;
@@ -176,7 +157,7 @@
     .scan-label span { animation: pulse 2s ease infinite; display:inline-block; }
     @keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
 
-    /* ── Found badge ── */
+    /* Found badge */
     #found-badge {
       position:fixed; top:20px; left:50%;
       transform:translateX(-50%) translateY(-70px);
@@ -189,7 +170,7 @@
     }
     #found-badge.show { transform:translateX(-50%) translateY(0); }
 
-    /* ── HUD ── */
+    /* HUD */
     #hud {
       position:fixed; bottom:0; left:0; right:0; z-index:150;
       padding:16px 20px 32px;
@@ -209,23 +190,10 @@
     .hud-btn:active { background:rgba(255,255,255,0.2); }
     .hud-btn.active { background:rgba(0,229,255,0.25); border-color:rgba(0,229,255,0.4); }
 
-    /* Scene container must be fixed full-screen BEHIND all UI overlays */
-    #scene-container {
-      position: fixed;
-      inset: 0;
-      z-index: 1;
-    }
-    a-scene {
-      width: 100vw !important;
-      height: 100vh !important;
-    }
-    /* A-Frame injects a canvas — make sure it fills the scene */
-    a-scene canvas {
-      width: 100% !important;
-      height: 100% !important;
-    }
+    #scene-container { position: fixed; inset: 0; z-index: 1; }
+    a-scene { width: 100vw !important; height: 100vh !important; }
+    a-scene canvas { width: 100% !important; height: 100% !important; }
 
-    /* ── Mobile responsive ── */
     @media (max-width: 480px) {
       #splash { padding: 24px 20px; gap: 16px; }
       #splash h1 { font-size: 24px; }
@@ -233,37 +201,34 @@
       .steps { max-width: 100%; }
       .step { padding: 10px 14px; }
       #start-btn { font-size: 14px; padding: 14px; }
-      #admin-btn { top: 12px; right: 12px; padding: 8px 14px; font-size: 11px; }
       #found-badge { font-size: 12px; padding: 8px 18px; white-space: nowrap; }
       .scan-frame { width: 200px; height: 150px; }
       .hud-btn { padding: 9px 16px; font-size: 11px; }
       #hud { padding: 14px 16px 28px; }
     }
-
-    /* Safe area for iPhone notch/home bar */
     #hud { padding-bottom: max(32px, env(safe-area-inset-bottom)); }
-    #admin-btn { top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); }
   </style>
 </head>
 <body>
 
-<!-- No assets uploaded yet -->
+<!-- Shown when URL has no /ar/<id>, or experience is missing/inactive -->
 <div id="not-ready" class="gone">
   <div class="icon">🚧</div>
-  <h2>Experience Not Ready</h2>
-  <p>No AR assets have been published yet.<br>Please check back later.</p>
+  <h2 id="not-ready-title">Experience Not Found</h2>
+  <p id="not-ready-msg">This QR code does not point to a valid AR experience.</p>
 </div>
 
 <!-- Loading -->
-<div id="loading-screen" class="gone">
+<div id="loading-screen">
   <div class="loader-ring"></div>
-  <h2>Starting Camera</h2>
-  <p>Loading AR engine...</p>
+  <h2>Preparing Experience</h2>
+  <p>Fetching assets...</p>
 </div>
 
 <!-- Splash -->
 <div id="splash" class="gone">
   <div class="splash-ring">📷</div>
+  <div id="splash-title" class="gone"></div>
   <h1>Point. <span>Reveal.</span></h1>
   <p>Scan the target image to unlock the hidden video experience</p>
   <div class="steps">
@@ -273,9 +238,6 @@
   </div>
   <button id="start-btn" onclick="startAR()">▶ &nbsp;Launch AR</button>
 </div>
-
-<!-- Admin button — fixed top-right, hidden after AR starts -->
-<a id="admin-btn" href="admin.html">⚙ Admin</a>
 
 <!-- Scanning -->
 <div id="scanning" class="gone">
@@ -296,78 +258,111 @@
   <button class="hud-btn" onclick="replayVideo()">↺ Replay</button>
 </div>
 
-<!-- AR Scene (built dynamically) -->
+<!-- AR Scene built dynamically -->
 <div id="scene-container"></div>
 
+<!-- ========================================================== -->
+<!--   YOUR SUPABASE CONFIG — paste your project URL + anon key  -->
+<!--   You'll get these after creating your Supabase project.    -->
+<!--   (See README.md for step-by-step.)                         -->
+<!-- ========================================================== -->
+<script src="./config.js"></script>
+
 <script>
-  const DB_NAME = 'ArAssets';
-  let db, arSystem, isMuted = true;
-  let mindBlob = null, videoBlob = null;
-  let videoEl = null;
+  // ── Anti-jitter config (same as v1) ───────────────────
+  const LERP_ALPHA     = 0.25;
+  const LOST_DEBOUNCE  = 45;
+  const FOUND_DEBOUNCE = 2;
 
-  // ─────────────────────────────────────────────────────
-  // ANTI-JITTER CONFIG — tweak these if needed
-  // ─────────────────────────────────────────────────────
-  const LERP_ALPHA     = 0.25;  // position/rotation smoothing (0.1=very smooth, 0.5=snappier)
-  const LOST_DEBOUNCE  = 45;    // frames target must be "gone" before we actually hide (≈1.5s at 30fps)
-  const FOUND_DEBOUNCE = 2;     // frames target must be "seen" before we show (kills false flickers)
-  // ─────────────────────────────────────────────────────
+  // ── State ─────────────────────────────────────────────
+  let supabase    = null;
+  let experience  = null;     // the row from DB { id, slug, title, mind_url, video_url }
+  let arSystem    = null;
+  let videoEl     = null;
+  let isMuted     = true;
 
-  // ── IndexedDB ─────────────────────────────────────────
-  function openDB() {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = e => {
-        const d = e.target.result;
-        if (!d.objectStoreNames.contains('assets'))
-          d.createObjectStore('assets', { keyPath: 'key' });
-      };
-      req.onsuccess = e => { db = e.target.result; resolve(); };
-      req.onerror   = reject;
-    });
-  }
-  function dbGet(key) {
-    return new Promise((res, rej) => {
-      const req = db.transaction('assets','readonly').objectStore('assets').get(key);
-      req.onsuccess = () => res(req.result?.value ?? null);
-      req.onerror   = rej;
-    });
+  // ── 1. Read experience ID from URL ────────────────────
+  // URL formats supported:
+  //   /ar/<id>                ← clean
+  //   /index.html?id=<id>     ← fallback
+  //   /?id=<id>               ← fallback
+  function getExperienceIdFromUrl() {
+    const path = window.location.pathname;
+    // Match /ar/<id>  (id = letters/numbers/dashes/underscores)
+    const m = path.match(/\/ar\/([a-zA-Z0-9_-]+)/);
+    if (m) return m[1];
+    // Fallback: ?id=...
+    const params = new URLSearchParams(window.location.search);
+    return params.get('id');
   }
 
-  // ── Init ──────────────────────────────────────────────
-  async function init() {
-    await openDB();
-    const mindData  = await dbGet('mind_data');
-    const videoData = await dbGet('video_data');
-    const videoType = await dbGet('video_type') || 'video/mp4';
+  // ── 2. Fetch experience details from Supabase ─────────
+  async function loadExperience() {
+    const id = getExperienceIdFromUrl();
 
-    if (!mindData || !videoData) {
-      document.getElementById('not-ready').classList.remove('gone');
+    if (!id) {
+      showNotReady('No Experience ID', 'Scan a valid QR code to start.');
       return;
     }
-    mindBlob  = URL.createObjectURL(new Blob([mindData],  { type: 'application/octet-stream' }));
-    videoBlob = URL.createObjectURL(new Blob([videoData], { type: videoType }));
+
+    if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
+      showNotReady('Configuration Missing', 'Supabase keys not set. See README.md.');
+      return;
+    }
+
+    supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+
+    // Look up the experience row by its short ID
+    const { data, error } = await supabase
+      .from('experiences')
+      .select('id, slug, title, mind_url, video_url, is_active')
+      .eq('slug', id)
+      .single();
+
+    if (error || !data) {
+      showNotReady('Experience Not Found', 'This QR code is invalid or has been deleted.');
+      return;
+    }
+
+    if (!data.is_active) {
+      showNotReady('Experience Paused', 'This AR experience is temporarily disabled.');
+      return;
+    }
+
+    experience = data;
+
+    // Show splash with optional title
+    document.getElementById('loading-screen').classList.add('gone');
     document.getElementById('splash').classList.remove('gone');
+    if (experience.title) {
+      const t = document.getElementById('splash-title');
+      t.textContent = experience.title;
+      t.classList.remove('gone');
+    }
   }
 
-  // ── Build & start AR ──────────────────────────────────
+  function showNotReady(title, msg) {
+    document.getElementById('loading-screen').classList.add('gone');
+    document.getElementById('not-ready-title').textContent = title;
+    document.getElementById('not-ready-msg').textContent = msg;
+    document.getElementById('not-ready').classList.remove('gone');
+  }
+
+  // ── 3. Start AR after user taps "Launch" ──────────────
   function startAR() {
     document.getElementById('splash').classList.add('gone');
     document.getElementById('loading-screen').classList.remove('gone');
-    document.getElementById('admin-btn').classList.add('gone'); // hide after launch
+    document.querySelector('#loading-screen h2').textContent = 'Starting Camera';
+    document.querySelector('#loading-screen p').textContent  = 'Loading AR engine...';
     registerComponents();
     buildScene();
   }
 
-  // ── Register custom A-Frame components ────────────────
+  // ── Smooth-anchor + debounce-visibility (unchanged) ──
   function registerComponents() {
-
-    // ① SMOOTH-ANCHOR: lerps position + quaternion every tick
-    //    Attach to the <a-entity> that has mindar-image-target
     if (!AFRAME.components['smooth-anchor']) {
       AFRAME.registerComponent('smooth-anchor', {
         schema: { alpha: { type: 'number', default: 0.25 } },
-
         init() {
           this.smoothPos  = new THREE.Vector3();
           this.smoothQuat = new THREE.Quaternion();
@@ -375,79 +370,60 @@
           this.rawQuat    = new THREE.Quaternion();
           this.initialized = false;
         },
-
         tick() {
           const obj = this.el.object3D;
-          if (!obj.visible) return; // don't smooth while hidden
-
-          // Read the raw transform MindAR wrote this frame
+          if (!obj.visible) return;
           this.rawPos.copy(obj.position);
           this.rawQuat.copy(obj.quaternion);
-
           if (!this.initialized) {
-            // Snap to first known position immediately
             this.smoothPos.copy(this.rawPos);
             this.smoothQuat.copy(this.rawQuat);
             this.initialized = true;
             return;
           }
-
-          // Lerp position
           this.smoothPos.lerp(this.rawPos, this.data.alpha);
-          // Slerp rotation (much better than lerp for quaternions)
           this.smoothQuat.slerp(this.rawQuat, this.data.alpha);
-
           obj.position.copy(this.smoothPos);
           obj.quaternion.copy(this.smoothQuat);
         }
       });
     }
 
-    // ② DEBOUNCE-VISIBILITY: prevents flicker on targetFound/Lost
-    //    by requiring N consecutive frames before toggling state
     if (!AFRAME.components['debounce-visibility']) {
       AFRAME.registerComponent('debounce-visibility', {
         schema: {
           lostFrames:  { type: 'number', default: 45 },
           foundFrames: { type: 'number', default: 2 },
         },
-
         init() {
-          this.isVisible      = false;
-          this.lostCounter    = 0;
-          this.foundCounter   = 0;
-          this.rawVisible     = false;
-
-          // Listen to MindAR's raw events
-          this.el.addEventListener('targetFound', () => {
-            this.rawVisible = true;
-          });
-          this.el.addEventListener('targetLost', () => {
-            this.rawVisible = false;
-          });
+          this.isVisible    = false;
+          this.lostCounter  = 0;
+          this.foundCounter = 0;
+          this.rawVisible   = false;
+          this.el.addEventListener('targetFound', () => { this.rawVisible = true;  });
+          this.el.addEventListener('targetLost',  () => { this.rawVisible = false; });
         },
-
         tick() {
           if (this.rawVisible) {
-            this.lostCounter = 0; // reset lost counter
+            this.lostCounter = 0;
             if (!this.isVisible) {
               this.foundCounter++;
               if (this.foundCounter >= this.data.foundFrames) {
-                this.isVisible    = true;
+                this.isVisible = true;
                 this.foundCounter = 0;
                 this.el.object3D.visible = true;
-                this.el.emit('stableFound'); // our stable event
+                this.el.emit('stableFound');
               }
             }
           } else {
-            this.foundCounter = 0; // reset found counter
+            this.foundCounter = 0;
             if (this.isVisible) {
               this.lostCounter++;
               if (this.lostCounter >= this.data.lostFrames) {
-                this.isVisible  = false;
+                this.isVisible = false;
                 this.lostCounter = 0;
                 this.el.object3D.visible = false;
-                this.el.emit('stableLost'); // our stable event
+                this.el.emit('stableLost');
               }
             }
           }
@@ -456,13 +432,17 @@
     }
   }
 
-  // ── Build scene HTML ──────────────────────────────────
+  // ── 4. Build the AR scene with the URLs from Supabase ──
   function buildScene() {
     const container = document.getElementById('scene-container');
+
+    // We pass the .mind URL DIRECTLY to MindAR (no blob conversion needed).
+    // MindAR will fetch it via HTTPS — Supabase storage serves it with proper
+    // CORS headers, so this Just Works.
     container.innerHTML = `
       <a-scene
         id="ar-scene"
-        mindar-image="imageTargetSrc: ${mindBlob}; autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.001; filterBeta: 1000;"
+        mindar-image="imageTargetSrc: ${experience.mind_url}; autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.001; filterBeta: 1000;"
         color-space="sRGB"
         renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true;"
         embedded
@@ -472,7 +452,7 @@
       >
         <a-assets>
           <video id="ar-video"
-            src="${videoBlob}"
+            src="${experience.video_url}"
             preload="auto"
             playsinline webkit-playsinline
             muted loop
@@ -482,10 +462,6 @@
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!--
-          debounce-visibility  → stops the show/hide flicker
-          smooth-anchor        → lerps transform every frame
-        -->
         <a-entity
           id="image-target"
           mindar-image-target="targetIndex: 0"
@@ -521,15 +497,12 @@
         '<p style="color:#ff4d6d;text-align:center;padding:40px;font-family:DM Mono,monospace;font-size:14px;">⚠️ Camera access denied.<br><br>Allow camera permissions and refresh.</p>';
     });
 
-    // Use STABLE events from debounce-visibility, not raw MindAR events
     targetEl.addEventListener('stableFound', () => {
       document.getElementById('scanning').classList.add('gone');
       document.getElementById('hud').classList.add('show');
-
       const badge = document.getElementById('found-badge');
       badge.classList.add('show');
       setTimeout(() => badge.classList.remove('show'), 2500);
-
       videoEl.muted = isMuted;
       videoEl.play().catch(() => { videoEl.muted = true; videoEl.play(); });
     });
@@ -553,7 +526,8 @@
     if (videoEl) { videoEl.currentTime = 0; videoEl.play(); }
   }
 
-  init();
+  // ── Kick it off ───────────────────────────────────────
+  loadExperience();
 </script>
 </body>
 </html>
