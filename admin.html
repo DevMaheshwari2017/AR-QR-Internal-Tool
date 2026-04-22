@@ -10,7 +10,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <!-- QR code generator (creates downloadable QR PNGs) -->
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <style>
     :root {
@@ -319,7 +319,9 @@
       background: #fff; padding: 20px; border-radius: 16px;
       display: flex; justify-content: center; margin: 16px 0 20px;
     }
-    #qr-canvas-wrap canvas { max-width: 100%; height: auto !important; }
+    #qr-canvas-wrap canvas,
+    #qr-canvas-wrap img { max-width: 100%; height: auto !important; display: block; }
+    #qr-canvas-wrap #qr-target canvas { display: none; } /* qrcodejs renders both canvas + img; show img only */
     .qr-url {
       background: var(--surface2);
       border: 1px solid var(--border);
@@ -501,7 +503,7 @@
 <div id="toast"><span id="toast-icon"></span><span id="toast-msg"></span></div>
 
 <!-- Supabase config -->
-<script src="./config.js"></script>
+<script src="/config.js"></script>
 
 <script>
   // ─── Admin credentials (change in config.js if you want) ───
@@ -782,25 +784,42 @@
     document.getElementById('qr-title').innerHTML = `QR <span>Code</span>` + (title ? ` — ${escapeHtml(title)}` : '');
     document.getElementById('qr-url-text').textContent = url;
 
+    // qrcodejs renders into a div; give it a fresh target each time
     const wrap = document.getElementById('qr-canvas-wrap');
-    wrap.innerHTML = '<canvas id="qr-canvas"></canvas>';
-    QRCode.toCanvas(document.getElementById('qr-canvas'), url, {
+    wrap.innerHTML = '<div id="qr-target"></div>';
+    new QRCode(document.getElementById('qr-target'), {
+      text: url,
       width: 320,
-      margin: 2,
-      color: { dark: '#080b0f', light: '#ffffff' }
-    }, (err) => {
-      if (err) showToast('error', '⚠ QR generation failed');
+      height: 320,
+      colorDark:  '#080b0f',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
     });
 
     document.getElementById('qr-modal').classList.add('show');
   }
 
   function downloadQR() {
-    const canvas = document.getElementById('qr-canvas');
-    if (!canvas) return;
+    // The library renders BOTH an <img> (for browsers) and a <canvas>.
+    // We grab whichever is present and download it.
+    const target = document.getElementById('qr-target');
+    if (!target) return;
+    const img = target.querySelector('img');
+    const canvas = target.querySelector('canvas');
+
+    let dataUrl;
+    if (img && img.src) {
+      dataUrl = img.src;
+    } else if (canvas) {
+      dataUrl = canvas.toDataURL('image/png');
+    } else {
+      showToast('error', '⚠ QR not ready yet, try again');
+      return;
+    }
+
     const link = document.createElement('a');
     link.download = `ar-qr-${currentQrSlug}.png`;
-    link.href = canvas.toDataURL('image/png');
+    link.href = dataUrl;
     link.click();
   }
 
