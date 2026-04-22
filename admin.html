@@ -509,7 +509,7 @@
   const ADMIN_PASS = (window.ADMIN_PASS || 'ar2024');
 
   // ─── State ────────────────────────────────────────────────
-  let supabase = null;
+  let sb = null;
   const staged = { mind: null, video: null }; // File objects waiting to upload
   let currentQrSlug = null;
 
@@ -519,7 +519,7 @@
       alert('Supabase keys missing! Edit config.js — see README.md.');
       return false;
     }
-    supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
     return true;
   }
 
@@ -553,7 +553,7 @@
     const wrap = document.getElementById('exp-list-wrap');
     wrap.innerHTML = '<div class="empty-state"><div class="icon">⏳</div><p>Loading...</p></div>';
 
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from('experiences')
       .select('*')
       .order('created_at', { ascending: false });
@@ -690,7 +690,7 @@
       label.textContent = 'Uploading target file...';
       bar.style.width = '20%';
       const mindPath = `${slug}/target.mind`;
-      const { error: mindErr } = await supabase.storage
+      const { error: mindErr } = await sb.storage
         .from('ar-assets')
         .upload(mindPath, staged.mind, { contentType: 'application/octet-stream', upsert: true });
       if (mindErr) throw new Error('Mind upload: ' + mindErr.message);
@@ -701,19 +701,19 @@
       const videoExt = staged.video.name.split('.').pop().toLowerCase();
       const videoPath = `${slug}/video.${videoExt}`;
       const videoMime = videoExt === 'webm' ? 'video/webm' : 'video/mp4';
-      const { error: vidErr } = await supabase.storage
+      const { error: vidErr } = await sb.storage
         .from('ar-assets')
         .upload(videoPath, staged.video, { contentType: videoMime, upsert: true });
       if (vidErr) throw new Error('Video upload: ' + vidErr.message);
 
       // 3. Get public URLs for both files
-      const mindUrl  = supabase.storage.from('ar-assets').getPublicUrl(mindPath).data.publicUrl;
-      const videoUrl = supabase.storage.from('ar-assets').getPublicUrl(videoPath).data.publicUrl;
+      const mindUrl  = sb.storage.from('ar-assets').getPublicUrl(mindPath).data.publicUrl;
+      const videoUrl = sb.storage.from('ar-assets').getPublicUrl(videoPath).data.publicUrl;
 
       // 4. Insert DB row
       label.textContent = 'Saving experience...';
       bar.style.width = '90%';
-      const { error: insErr } = await supabase
+      const { error: insErr } = await sb
         .from('experiences')
         .insert({
           slug,
@@ -746,7 +746,7 @@
 
   // ─── Toggle active / paused ───────────────────────────────
   async function toggleActive(id, newState) {
-    const { error } = await supabase
+    const { error } = await sb
       .from('experiences')
       .update({ is_active: newState })
       .eq('id', id);
@@ -761,14 +761,14 @@
 
     // Delete storage files first (best-effort; even if this fails,
     // the DB row deletion still happens so the QR stops working)
-    const { data: files } = await supabase.storage.from('ar-assets').list(slug);
+    const { data: files } = await sb.storage.from('ar-assets').list(slug);
     if (files && files.length) {
       const paths = files.map(f => `${slug}/${f.name}`);
-      await supabase.storage.from('ar-assets').remove(paths);
+      await sb.storage.from('ar-assets').remove(paths);
     }
 
     // Delete DB row
-    const { error } = await supabase.from('experiences').delete().eq('id', id);
+    const { error } = await sb.from('experiences').delete().eq('id', id);
     if (error) { showToast('error', '⚠ ' + error.message); return; }
 
     showToast('success', '✓ Deleted');

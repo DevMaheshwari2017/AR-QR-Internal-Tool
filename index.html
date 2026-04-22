@@ -275,7 +275,7 @@
   const FOUND_DEBOUNCE = 2;
 
   // ── State ─────────────────────────────────────────────
-  let supabase    = null;
+  let sb    = null;
   let experience  = null;     // the row from DB { id, slug, title, mind_url, video_url }
   let arSystem    = null;
   let videoEl     = null;
@@ -310,10 +310,10 @@
       return;
     }
 
-    supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
     // Look up the experience row by its short ID
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from('experiences')
       .select('id, slug, title, mind_url, video_url, is_active')
       .eq('slug', id)
